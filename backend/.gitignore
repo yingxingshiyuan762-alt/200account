@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+/database/
+
+# Logs
+logs/
+*.log
+
+# Playwright
+playwright-browsers/
+.playwright/
+
+# Configuration (sensitive)
+config/local_config.py
+secrets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific
+accounts_data/
+screenshots/
+backups/
+patches/
+

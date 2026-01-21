@@ -1,0 +1,27 @@
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+python-multipart>=0.0.6
+
+# Database
+SQLAlchemy>=2.0.0
+pymysql>=1.1.0
+
+# Configuration & Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Encryption
+cryptography>=41.0.0
+
+# System Monitoring (optional - used for system resources API endpoint)
+# If not installed, the /api/system/resources endpoint will return default values
+psutil>=5.9.0
+
+# Browser Automation
+playwright>=1.40.0
+
+# Logging
+colorlog>=6.8.0
+
