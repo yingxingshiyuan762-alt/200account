@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>200 Account Automation Monitor</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      width: 400px;
+      min-height: 300px;
+      max-height: 600px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #f9fafb;
+      color: #111827;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 16px;
+    }
+    
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .header .status {
+      font-size: 12px;
+      opacity: 0.9;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    
+    .status-indicator.connected {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+    
+    .status-indicator.disconnected {
+      background: #f59e0b;
+    }
+    
+    .status-indicator.error {
+      background: #ef4444;
+    }
+    
+    .actions {
+      padding: 12px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn {
+      padding: 6px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: white;
+      color: #374151;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn:hover {
+      background: #f3f4f6;
+      border-color: #9ca3af;
+    }
+    
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+      border-color: #3b82f6;
+    }
+    
+    .btn-primary:hover {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+    
+    .notifications {
+      max-height: 450px;
+      overflow-y: auto;
+    }
+    
+    .notification-item {
+      padding: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      background: white;
+      transition: background 0.2s;
+    }
+    
+    .notification-item:hover {
+      background: #f9fafb;
+    }
+    
+    .notification-item.unread {
+      background: #eff6ff;
+      border-left: 3px solid #3b82f6;
+    }
+    
+    .notification-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 6px;
+    }
+    
+    .notification-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .severity-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .severity-badge.critical {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+    
+    .severity-badge.error {
+      background: #fef2f2;
+      color: #ef4444;
+    }
+    
+    .severity-badge.warning {
+      background: #fffbeb;
+      color: #f59e0b;
+    }
+    
+    .severity-badge.info {
+      background: #eff6ff;
+      color: #3b82f6;
+    }
+    
+    .notification-time {
+      font-size: 11px;
+      color: #6b7280;
+    }
+    
+    .notification-message {
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.4;
+      margin-bottom: 4px;
+    }
+    
+    .notification-account {
+      font-size: 11px;
+      color: #6b7280;
+      font-family: 'Courier New', monospace;
+    }
+    
+    .empty-state {
+      padding: 48px 24px;
+      text-align: center;
+      color: #9ca3af;
+    }
+    
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    
+    .empty-state-text {
+      font-size: 14px;
+    }
+    
+    .footer {
+      padding: 12px;
+      background: white;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+    }
+    
+    .footer a {
+      font-size: 12px;
+      color: #3b82f6;
+      text-decoration: none;
+    }
+    
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>200 Account Automation</h1>
+    <div class="status">
+      <span class="status-indicator" id="statusIndicator"></span>
+      <span id="statusText">接続中...</span>
+    </div>
+  </div>
+  
+  <div class="actions">
+    <button class="btn" id="markAllReadBtn">すべて既読</button>
+    <button class="btn" id="clearHistoryBtn">履歴を消去</button>
+    <button class="btn btn-primary" id="reconnectBtn">再接続</button>
+  </div>
+  
+  <div class="notifications" id="notificationsContainer">
+    <div class="empty-state">
+      <div class="empty-state-icon">🔔</div>
+      <div class="empty-state-text">通知はありません</div>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <a href="http://localhost:8080" target="_blank">ダッシュボードを開く →</a>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

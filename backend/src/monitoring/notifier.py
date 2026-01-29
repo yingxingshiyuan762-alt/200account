@@ -38,15 +38,8 @@ class Notifier:
         self.event_logger: Optional[EventLogger] = None
         self.sent_notifications: Dict[str, datetime] = {}  # (event_type, account_id) -> last_sent_time
         self.cooldown_window: int = getattr(settings, 'NOTIFICATION_COOLDOWN_MINUTES', 12) * 60  # デフォルト12分（秒）
-        # メールアドレスリストを処理（カンマ区切りまたはリスト）
-        emails_raw = getattr(settings, 'NOTIFICATION_EMAILS', [])
-        if isinstance(emails_raw, str):
-            # カンマ区切りの文字列の場合
-            self.recipient_emails = [email.strip() for email in emails_raw.split(',') if email.strip()]
-        elif isinstance(emails_raw, list):
-            self.recipient_emails = emails_raw
-        else:
-            self.recipient_emails = []
+        # メールアドレスリストを取得
+        self.recipient_emails = settings.notification_email_list
         self.smtp_config: Dict[str, Any] = self._load_smtp_config()
         self._lock = threading.Lock()
         self.event_queue: asyncio.Queue = asyncio.Queue()
@@ -144,8 +137,9 @@ class Notifier:
         
         1. イベント検証
         2. 通知フィルタリング
-        3. メール送信
-        4. ログ記録
+        3. Chrome拡張機能への通知
+        4. メール送信
+        5. ログ記録
         """
         try:
             # Step 1: イベント検証
@@ -159,10 +153,16 @@ class Notifier:
                 self._log_notification_attempt(event, 'suppressed', 'Filtered by notification rules')
                 return
             
-            # Step 3: メール送信
+            # Step 3: Chrome拡張機能への通知（非同期、エラーでも継続）
+            try:
+                await self._send_chrome_notification(event)
+            except Exception as chrome_error:
+                logger.warning(f"Failed to send Chrome notification: {chrome_error}")
+            
+            # Step 4: メール送信
             send_result = await self._send_email(event)
             
-            # Step 4: ログ記録
+            # Step 5: ログ記録
             self._log_notification_attempt(
                 event,
                 'success' if send_result['success'] else 'failure',
@@ -389,6 +389,69 @@ class Notifier:
                 'success': False,
                 'reason': str(e)
             }
+    
+    async def _send_chrome_notification(self, event: SystemEvent):
+        """
+        Chrome拡張機能に通知を送信
+        
+        Args:
+            event: システムイベント
+        """
+        try:
+            # WebSocketマネージャーをインポート
+            from src.web.api.websocket import broadcast_notification
+            
+            # アカウント情報を取得
+            account_username = None
+            if event.account_id:
+                try:
+                    with get_session() as session:
+                        account_repo = AccountRepository(session)
+                        account = account_repo.get_by_id(event.account_id)
+                        if account:
+                            account_username = account.username
+                except Exception:
+                    pass
+            
+            # 通知データを構築
+            notification = {
+                'id': event.event_id,
+                'type': 'error' if event.severity in [EventSeverity.ERROR, EventSeverity.CRITICAL] else 'warning',
+                'severity': event.severity.value,
+                'title': self._get_notification_title(event),
+                'message': event.message or 'エラーが発生しました',
+                'account_id': event.account_id,
+                'account_username': account_username,
+                'timestamp': event.timestamp.isoformat(),
+                'details': event.data
+            }
+            
+            # WebSocketでブロードキャスト
+            await broadcast_notification(notification)
+            logger.debug(f"Chrome notification sent for event: {event.event_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send Chrome notification: {e}", exc_info=True)
+            raise
+    
+    def _get_notification_title(self, event: SystemEvent) -> str:
+        """
+        イベントから通知タイトルを生成
+        
+        Args:
+            event: システムイベント
+        
+        Returns:
+            str: 通知タイトル
+        """
+        if event.severity == EventSeverity.CRITICAL:
+            return "重大エラー発生"
+        elif event.severity == EventSeverity.ERROR:
+            return "エラー発生"
+        elif event.severity == EventSeverity.WARNING:
+            return "警告"
+        else:
+            return "システム通知"
     
     def _generate_email_content(self, event: SystemEvent) -> tuple:
         """

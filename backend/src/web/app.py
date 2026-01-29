@@ -40,6 +40,21 @@ async def lifespan(app: FastAPI):
     from src.web.api.websocket import start_realtime_updates
     await start_realtime_updates()
     
+    # パッチシステムの読み込み
+    from src.patch import patch_manager
+    logger.info("Loading patches...")
+    try:
+        patches = patch_manager.load_patches()
+        logger.info(f"Loaded {len(patches)} patches")
+        
+        # 自動実行可能な未実行パッチを確認
+        pending = patch_manager.get_pending_patches()
+        auto_pending = [p for p in pending if p.auto_execute]
+        if auto_pending:
+            logger.info(f"Found {len(auto_pending)} auto-executable pending patches")
+    except Exception as e:
+        logger.error(f"Failed to load patches: {e}", exc_info=True)
+    
     # 通知機能のイベントサブスクリプションを設定
     setup_notifier_event_subscription()
     
@@ -85,8 +100,9 @@ from src.web.api import routes
 app.include_router(routes.api_router, prefix="/api", tags=["API"])
 
 # WebSocketハンドラの登録
-from src.web.api.websocket import websocket_endpoint
+from src.web.api.websocket import websocket_endpoint, websocket_notifications_endpoint
 app.add_websocket_route("/ws", websocket_endpoint)
+app.add_websocket_route("/ws/notifications", websocket_notifications_endpoint)
 
 logger.info("FastAPI Web Application initialized")
 

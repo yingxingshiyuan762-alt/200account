@@ -19,7 +19,10 @@ from src.core.logger import logger
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
-        self.rooms: dict[str, set[WebSocket]] = {"dashboard": set()}
+        self.rooms: dict[str, set[WebSocket]] = {
+            "dashboard": set(),
+            "notifications": set()  # Chrome extension notification room
+        }
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -206,5 +209,69 @@ async def broadcast_account_update(account_id: str):
                 }, room="dashboard")
     except Exception as e:
         logger.error(f"Error broadcasting account update: {e}", exc_info=True)
+
+
+async def broadcast_notification(notification: dict):
+    """
+    Chrome拡張機能に通知をブロードキャスト
+    
+    Args:
+        notification: 通知データ
+    """
+    try:
+        await manager.broadcast_to_room({
+            "type": "notification",
+            **notification
+        }, room="notifications")
+        logger.debug(f"Notification broadcasted to Chrome extension: {notification.get('title', 'N/A')}")
+    except Exception as e:
+        logger.error(f"Error broadcasting notification to Chrome extension: {e}", exc_info=True)
+
+
+async def websocket_notifications_endpoint(websocket: WebSocket):
+    """Chrome拡張機能用のWebSocketエンドポイント"""
+    await websocket.accept()
+    manager.active_connections.append(websocket)
+    manager.rooms["notifications"].add(websocket)
+    logger.info(f"Chrome extension connected: {websocket.client}")
+    
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Connected to notification server",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                message_type = message.get("type")
+                
+                if message_type == "register":
+                    await websocket.send_json({
+                        "type": "registered",
+                        "message": "Chrome extension registered successfully",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                    logger.info(f"Chrome extension registered: {message.get('client', 'unknown')}")
+                
+                elif message_type == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+            except Exception as e:
+                logger.error(f"Error handling WebSocket message: {e}", exc_info=True)
+                
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info("Chrome extension disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}", exc_info=True)
+        manager.disconnect(websocket)
 
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { Dashboard } from '@/pages/Dashboard';
 import { Settings } from '@/pages/Settings';
+import { Patches } from '@/pages/Patches';
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -11,6 +12,7 @@ const Index = () => {
       <Header currentPage={currentPage} onPageChange={setCurrentPage} />
       <main className="container mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {currentPage === 'dashboard' && <Dashboard />}
+        {currentPage === 'patches' && <Patches />}
         {currentPage === 'settings' && <Settings />}
         {currentPage === 'accounts' && (
           <div className="rounded-xl border bg-card p-8 text-center">

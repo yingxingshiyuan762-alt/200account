@@ -22,6 +22,7 @@ export function Header({ currentPage, onPageChange }: HeaderProps) {
 
   const navItems = [
     { id: 'dashboard', label: 'ダッシュボード' },
+    { id: 'patches', label: 'パッチ管理' },
     { id: 'accounts', label: 'アカウント管理' },
     { id: 'schedule', label: 'スケジュール' },
     { id: 'logs', label: 'ログ' },

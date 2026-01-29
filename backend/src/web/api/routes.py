@@ -17,6 +17,9 @@ from src.database.repositories.log import AccountLogRepository
 from src.database.models import Account, AccountStatus, ActionType, LogStatus
 from src.core.logger import logger
 
+# パッチシステムのインポート
+from src.patch import patch_manager
+
 api_router = APIRouter()
 
 
@@ -147,6 +150,57 @@ async def get_system_resources():
         }
     except Exception as e:
         logger.error(f"Error getting system resources: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/notifications/extension')
+async def get_extension_notifications(limit: int = Query(10, ge=1, le=100)):
+    """
+    Chrome拡張機能用の通知取得エンドポイント
+    
+    最近の通知をJSON形式で返す（ポーリング用）
+    """
+    try:
+        from src.core.event_system import event_logger
+        
+        # 最近のイベントを取得（ERROR以上）
+        notifications = []
+        
+        # イベントログから最近のエラー/警告を取得
+        with get_session() as session:
+            log_repo = AccountLogRepository(session)
+            account_repo = AccountRepository(session)
+            
+            # エラーログを取得
+            logs = log_repo.get_logs_by_status(['ERROR', 'FAILED'], limit=limit)
+            
+            for log in logs:
+                # アカウント情報を取得
+                account = account_repo.get_by_id(log.account_id) if log.account_id else None
+                
+                notification = {
+                    'id': str(log.id),
+                    'type': 'error',
+                    'severity': 'ERROR' if log.status == 'ERROR' else 'CRITICAL',
+                    'title': 'エラー発生',
+                    'message': log.message or 'エラーが発生しました',
+                    'account_id': str(log.account_id) if log.account_id else None,
+                    'account_username': account.username if account else None,
+                    'timestamp': log.created_at.isoformat() if log.created_at else datetime.utcnow().isoformat(),
+                    'details': {
+                        'action_type': log.action_type,
+                        'code_location': log.code_location
+                    }
+                }
+                notifications.append(notification)
+        
+        return {
+            'success': True,
+            'notifications': notifications,
+            'count': len(notifications)
+        }
+    except Exception as e:
+        logger.error(f"Error getting extension notifications: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -777,4 +831,199 @@ async def get_account_monitoring_state(account_id: str = Path(...)):
         }
     except Exception as e:
         logger.error(f"Error getting account monitoring state: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════
+# Patch Management API
+# ═══════════════════════════════════════════════════════
+
+@api_router.get('/patches')
+async def get_all_patches():
+    """すべてのパッチを取得"""
+    try:
+        patches = patch_manager.get_all_patches()
+        
+        return {
+            'success': True,
+            'data': {
+                'patches': [p.to_dict() for p in patches],
+                'count': len(patches)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting patches: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/patches/statistics')
+async def get_patch_statistics():
+    """パッチ統計を取得"""
+    try:
+        stats = patch_manager.get_statistics()
+        
+        return {
+            'success': True,
+            'data': stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting patch statistics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/patches/pending')
+async def get_pending_patches():
+    """未実行のパッチを取得"""
+    try:
+        patches = patch_manager.get_pending_patches()
+        
+        return {
+            'success': True,
+            'data': {
+                'patches': [p.to_dict() for p in patches],
+                'count': len(patches)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting pending patches: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/patches/critical')
+async def get_critical_patches():
+    """緊急パッチを取得"""
+    try:
+        patches = patch_manager.get_critical_patches()
+        
+        return {
+            'success': True,
+            'data': {
+                'patches': [p.to_dict() for p in patches],
+                'count': len(patches)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting critical patches: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/patches/{patch_id}')
+async def get_patch(patch_id: str = Path(...)):
+    """特定のパッチを取得"""
+    try:
+        patch = patch_manager.get_patch(patch_id)
+        
+        if not patch:
+            raise HTTPException(status_code=404, detail=f"Patch not found: {patch_id}")
+        
+        return {
+            'success': True,
+            'data': patch.to_dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting patch: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ExecutePatchRequest(BaseModel):
+    force: bool = False
+
+
+@api_router.post('/patches/{patch_id}/execute')
+async def execute_patch(
+    patch_id: str = Path(...),
+    request: ExecutePatchRequest = Body(...)
+):
+    """パッチを実行"""
+    try:
+        # 非同期実行
+        def _execute():
+            return patch_manager.execute_patch(patch_id, force=request.force)
+        
+        result = await asyncio.to_thread(_execute)
+        
+        return {
+            'success': result['success'],
+            'data': result
+        }
+    except Exception as e:
+        logger.error(f"Error executing patch: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post('/patches/execute-all')
+async def execute_all_pending_patches():
+    """すべての未実行パッチを実行"""
+    try:
+        # 非同期実行
+        def _execute_all():
+            return patch_manager.execute_all_pending(auto_only=True)
+        
+        result = await asyncio.to_thread(_execute_all)
+        
+        return {
+            'success': True,
+            'data': result
+        }
+    except Exception as e:
+        logger.error(f"Error executing all patches: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post('/patches/{patch_id}/rollback')
+async def rollback_patch(patch_id: str = Path(...)):
+    """パッチをロールバック"""
+    try:
+        # 非同期実行
+        def _rollback():
+            return patch_manager.rollback_patch(patch_id)
+        
+        result = await asyncio.to_thread(_rollback)
+        
+        return {
+            'success': result['success'],
+            'data': result
+        }
+    except Exception as e:
+        logger.error(f"Error rolling back patch: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post('/patches/{patch_id}/dry-run')
+async def dry_run_patch(patch_id: str = Path(...)):
+    """パッチのドライラン（シミュレーション）"""
+    try:
+        result = patch_manager.dry_run(patch_id)
+        
+        return {
+            'success': True,
+            'data': result
+        }
+    except Exception as e:
+        logger.error(f"Error performing dry run: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post('/patches/reload')
+async def reload_patches():
+    """パッチを再読み込み"""
+    try:
+        # 非同期実行
+        def _reload():
+            patches = patch_manager.load_patches()
+            return {
+                'loaded_count': len(patches),
+                'patches': [p.to_dict() for p in patches]
+            }
+        
+        result = await asyncio.to_thread(_reload)
+        
+        return {
+            'success': True,
+            'data': result
+        }
+    except Exception as e:
+        logger.error(f"Error reloading patches: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

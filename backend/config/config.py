@@ -59,7 +59,15 @@ class Settings(BaseSettings):
     
     # 通知設定
     NOTIFICATION_COOLDOWN_MINUTES: int = Field(default=12, env="NOTIFICATION_COOLDOWN_MINUTES")  # クールダウン期間（分）
-    NOTIFICATION_EMAILS: list[str] = Field(default=[], env="NOTIFICATION_EMAILS")  # 受信者メールアドレス（カンマ区切り）
+    NOTIFICATION_EMAILS: str = Field(default="", env="NOTIFICATION_EMAILS")  # 受信者メールアドレス（カンマ区切り）
+    
+    @property
+    def notification_email_list(self) -> list[str]:
+        """メールアドレスをリストに変換"""
+        if not self.NOTIFICATION_EMAILS:
+            return []
+        # カンマ区切りで分割してトリム
+        return [email.strip() for email in self.NOTIFICATION_EMAILS.split(',') if email.strip()]
     
     # SMTP設定
     SMTP_HOST: str = Field(default="smtp.gmail.com", env="SMTP_HOST")
