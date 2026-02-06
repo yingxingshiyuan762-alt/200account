@@ -16,6 +16,7 @@ from src.database.repositories.account import AccountRepository
 from src.database.repositories.log import AccountLogRepository
 from src.database.models import Account, AccountStatus, ActionType, LogStatus
 from src.core.logger import logger
+from config.config import settings
 
 # パッチシステムのインポート
 from src.patch import patch_manager

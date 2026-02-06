@@ -15,35 +15,42 @@ interface AccountTableProps {
   accounts: Account[];
   isLoading?: boolean;
   totalAccounts?: number;
+  /** Current page (1-based). Used for server-side pagination. */
+  page?: number;
+  /** Total number of pages from API. */
+  totalPages?: number;
+  /** Called when user changes page. */
+  onPageChange?: (page: number) => void;
 }
 
 type FilterType = 'all' | 'active' | 'manual' | 'error';
 
-export function AccountTable({ accounts, isLoading = false, totalAccounts }: AccountTableProps) {
+export function AccountTable({
+  accounts,
+  isLoading = false,
+  totalAccounts,
+  page = 1,
+  totalPages: serverTotalPages = 1,
+  onPageChange,
+}: AccountTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 8;
 
   const filteredAccounts = accounts.filter((account) => {
     const matchesSearch =
       account.accountId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       account.storeName.toLowerCase().includes(searchQuery.toLowerCase());
-    
     const matchesFilter =
       filter === 'all' ||
       (filter === 'active' && account.status === 'active') ||
       (filter === 'manual' && account.status === 'manual') ||
       (filter === 'error' && account.status === 'error');
-
     return matchesSearch && matchesFilter;
   });
 
-  const totalPages = Math.ceil(filteredAccounts.length / itemsPerPage);
-  const paginatedAccounts = filteredAccounts.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const totalPages = onPageChange ? serverTotalPages : 1;
+  const currentPage = page;
+  const paginatedAccounts = filteredAccounts;
 
   const getStatusBadge = (status: Account['status']) => {
     switch (status) {
@@ -92,7 +99,7 @@ export function AccountTable({ accounts, isLoading = false, totalAccounts }: Acc
                 key={btn.id}
                 onClick={() => {
                   setFilter(btn.id);
-                  setCurrentPage(1);
+                  onPageChange?.(1);
                 }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                   filter === btn.id
@@ -170,33 +177,36 @@ export function AccountTable({ accounts, isLoading = false, totalAccounts }: Acc
 
       <div className="flex items-center justify-between border-t px-5 py-4">
         <p className="text-sm text-muted-foreground">
-          {filteredAccounts.length}件のアカウントを表示中
+          {totalAccounts !== undefined
+            ? `${paginatedAccounts.length}件のアカウントを表示中（全${totalAccounts}件）`
+            : `${paginatedAccounts.length}件のアカウントを表示中`}
         </p>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
+            onClick={() => onPageChange?.(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1 || !onPageChange}
           >
             前へ
           </Button>
-          {Array.from({ length: Math.min(3, totalPages) }, (_, i) => i + 1).map((page) => (
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
             <Button
-              key={page}
-              variant={currentPage === page ? 'default' : 'outline'}
+              key={p}
+              variant={currentPage === p ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setCurrentPage(page)}
+              onClick={() => onPageChange?.(p)}
               className="w-9"
+              disabled={!onPageChange}
             >
-              {page}
+              {p}
             </Button>
           ))}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
+            onClick={() => onPageChange?.(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages || !onPageChange}
           >
             次へ
           </Button>

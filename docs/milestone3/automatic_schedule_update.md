@@ -1,185 +1,306 @@
-# 自動スケジュール更新 (Automatic Schedule Update)
-
-## 実装状況
-
-✅ **完全実装完了**
+# 自動スケジュール更新機能
 
 ## 概要
 
-明日のスケジュールを自動的に「出勤」に設定する機能。週間スケジュールに「出勤」が含まれるアカウントのみを対象とし、重複や漏れを防止します。
+A. スケジュール自動更新: 毎日AM7:00〜10:00に実行。週間スケジュールに基づき、翌日の設定を「出勤設定」に変更し登録する。
 
-## 主要機能
+## 機能説明
 
-### 実行トリガー
+### 処理ロジック
 
-- 毎日 07:00-10:00 の時間帯に1回実行
-- 実行失敗時も安全に再実行可能（冪等性保証）
+1. **ログイン処理**
+   - 126個のアカウントに順次ログイン
+   - 保存されているlogin_url（doors1またはdoors2）を使用
 
-### アカウント選択ロジック
+2. **スケジュールページへ移動**
+   - カシュテ/キャスト管理ページへ自動遷移
 
-- 週間スケジュールに「出勤」が1日以上含まれるアカウントを対象
-- アクティブなキャストメンバーを確実に含む
+3. **翌日の出勤設定**
+   - 翌日の日付列を特定
+   - 各行（キャスト）について：
+     - 翌日が「休み」の場合
+     - その行の週間スケジュールに「出勤」設定があるか確認
+     - ある場合、その時間帯を翌日にコピー
+     - 「出勤設定」として登録
 
-### 処理フロー
+4. **保存とログアウト**
+   - スケジュール変更を一括登録
+   - アカウントからログアウト
 
-1. **ロック取得**: アカウント単位の自動化ロックを取得
-2. **セッション検証**: 有効なセッション（クッキー、ページ到達性）を確認
-3. **スケジュールページ遷移**: スケジュール管理画面を開き、UI要素の読み込みを待機
-4. **明日の状態読み取り**: 明日の日付セルから現在の状態（出勤/退勤/未設定）を取得
-5. **条件付き更新**: 明日が「出勤」でない場合のみ「出勤」を選択して保存
-6. **更新後検証**: UIを再読み込みし、明日の状態が「出勤」であることを確認（最大3回リトライ）
-7. **ロック解放**: 自動化ロックを解除
+## スクリプト
 
-### エラーハンドリング
+### テスト用スクリプト
 
-- UI操作失敗時は最大3回リトライ
-- 1アカウントの失敗は他のアカウント処理を停止しない
-- すべてのエラーは個別にログ記録
+**ファイル**: `backend/scripts/auto_schedule_attendance.py`
 
-### ログ記録
+**使用方法**:
 
-- アカウントID、実行タイムスタンプ
-- 初期スケジュール状態、実行アクション（更新/スキップ）
-- 最終検証結果、エラー理由（該当時）
-
-## 技術実装
-
-### コード構造
-
-#### 1. スケジューラー (`backend/src/monitoring/scheduler.py`)
-
-**`_schedule_update_loop`メソッド** (行80-149):
-
-- 毎日07:00-10:00の時間帯を監視
-- `last_schedule_update_date`で1日1回の実行を保証
-- `_is_schedule_update_enabled()`でシステム設定を確認
-- 実行時間外は次回実行時刻まで待機
-
-```python
-# 実行時間帯チェック（7:00-10:00）
-if settings.SCHEDULE_UPDATE_START_HOUR <= current_hour < settings.SCHEDULE_UPDATE_END_HOUR:
-    # 今日すでに実行済みかチェック
-    if self.last_schedule_update_date == current_date:
-        # 今日は実行済み：次の実行時刻まで待機
-        continue
+```bash
+cd backend
+python scripts/auto_schedule_attendance.py
 ```
 
-**`_execute_schedule_update`メソッド** (行151-198):
+**テストアカウント**:
+- ID: `inpon_hmm`
+- PASS: `3F6KwLSdEe`
 
-- `asyncio.to_thread`で同期データベース操作を非同期実行
-- `ParallelExecutor.execute_accounts`で全アカウントを並列処理
-- 実行結果のサマリーを返却
-
-#### 2. 業務ロジック (`backend/src/automation/worker.py`)
-
-**`execute_schedule_update`関数** (行249-788):
-8ステップの詳細実装:
-
-**Step 1: ロック取得** (行276-288)
+### 実装内容
 
 ```python
-if not account_repo.acquire_lock(account_id, "schedule_update"):
-    schedule_ctx.log_skipped("Account is already locked by another process")
-    raise AutomationError("Account is locked")
+# 主要な関数
+
+1. try_login(page, url, username, password)
+   - Playwrightでログイン処理
+
+2. navigate_to_schedule_page(page, username)
+   - スケジュール管理ページへ移動
+
+3. get_tomorrow_date_string()
+   - 翌日の日付を日本語形式で取得
+   - 例: "2/4(水)"
+
+4. process_schedule_attendance(page, username)
+   - スケジュール処理のメインロジック
+   - 翌日列を特定
+   - 各行の「休み」をチェック
+   - 出勤時間があればコピー
+   - 変更を適用
+
+5. process_single_account(username, password, login_url)
+   - 1アカウントの完全処理
+   - ログイン→処理→ログアウト
 ```
 
-**Step 2: セッション検証** (行290-305)
+## 処理フロー
 
-- `manual_detector.check(page)`で手動操作を検知
-- クッキーの存在確認
-- ログインページへのリダイレクト検知
+```mermaid
+graph TD
+    A[開始] --> B[アカウント情報取得]
+    B --> C[ブラウザ起動]
+    C --> D[ログイン]
+    D --> E{ログイン成功?}
+    E -->|No| Z[エラー終了]
+    E -->|Yes| F[スケジュールページへ移動]
+    F --> G[スケジュールテーブル検索]
+    G --> H[翌日の日付列を特定]
+    H --> I[各行を走査]
+    I --> J{翌日は休み?}
+    J -->|No| K[次の行へ]
+    J -->|Yes| L[週間スケジュールをチェック]
+    L --> M{出勤設定あり?}
+    M -->|No| K
+    M -->|Yes| N[時間帯をコピー]
+    N --> O[翌日に設定]
+    O --> K
+    K --> P{全行完了?}
+    P -->|No| I
+    P -->|Yes| Q[一括保存]
+    Q --> R[ログアウト]
+    R --> S[終了]
+```
 
-**Step 3: スケジュールページ遷移** (行307-367)
+## スケジュール自動実行
 
-- 複数のURLパターンを試行 (`/schedule`, `/schedules`, `/weekly-schedule`)
-- 複数のセレクターでスケジュールコンテナを検索
-- `wait_for_load_state("networkidle")`で完全な読み込みを待機
+### Cron設定（Linux/Mac）
 
-**Step 4: 週間スケジュール読み取り** (行369-485)
+```bash
+# 毎日午前7時に実行
+0 7 * * * cd /path/to/backend && python scripts/auto_schedule_attendance.py >> logs/schedule_auto.log 2>&1
+```
 
-- 複数のセレクターでスケジュール行を取得
-- 各キャストの週間スケジュールを走査
-- 「出勤」マーカーを検出（テキスト、属性、クラス名をチェック）
-- 出勤設定がないアカウントは除外（正常な動作）
+### タスクスケジューラー（Windows）
 
-**Step 5: 明日の状態読み取り** (行486-556)
+1. タスクスケジューラーを開く
+2. 「基本タスクの作成」を選択
+3. 設定:
+   - **トリガー**: 毎日 7:00 AM
+   - **操作**: プログラムの開始
+   - **プログラム**: `python`
+   - **引数**: `scripts/auto_schedule_attendance.py`
+   - **開始**: `C:\Users\Administrator\Documents\200 account automation\backend`
+
+## 全アカウント対応版
+
+テストが成功したら、全126アカウントを処理する版を作成:
 
 ```python
-tomorrow = datetime.now() + timedelta(days=1)
-tomorrow_str = tomorrow.strftime("%Y-%m-%d")
-tomorrow_day_index = tomorrow.weekday()
+def main_all_accounts():
+    """Process all 126 accounts"""
+    from bulk_login_and_extract import get_accounts_ordered
+    
+    accounts = get_accounts_ordered()
+    
+    results = {
+        'success': 0,
+        'failed': 0,
+        'total_attendance_set': 0
+    }
+    
+    for i, account in enumerate(accounts, 1):
+        print(f"\n[{i}/{len(accounts)}] Processing: {account.username}")
+        
+        # Decrypt password
+        plain_password = decrypt_password(account.password_encrypted)
+        
+        # Process
+        result = process_single_account(
+            account.username,
+            plain_password,
+            account.login_url or LOGIN_URLS[1]
+        )
+        
+        if result['success']:
+            results['success'] += 1
+            if result['stats']:
+                results['total_attendance_set'] += result['stats']['attendance_set']
+        else:
+            results['failed'] += 1
+        
+        # Rate limiting
+        time.sleep(2)
+    
+    return results
 ```
 
-- `data-date`属性、曜日インデックス、テーブル列で明日のセルを特定
-- 現在の状態を判定（出勤/退勤/未設定）
-- 既に出勤の場合はスキップ
+## 注意事項
 
-**Step 6: 条件付き更新** (行560-680)
+### 1. UI要素の特定
 
-- 最大3回リトライ
-- 各キャストの明日セルをクリック
-- ドロップダウンまたはモーダルから「出勤」を選択
-- 保存ボタンをクリックして変更を適用
-- 成功/失敗メッセージを確認
+スケジュールページのUI構造によって、以下の調整が必要な場合があります：
 
-**Step 7: 更新後検証** (行682-756)
+- **スケジュールタブの名前**: "カシュテ"、"カシ"、"キャスト" など
+- **テーブル構造**: 日付の位置、列の数
+- **編集モード**: クリック後の入力方法
+- **保存ボタン**: "一括登録"、"保存"、"更新" など
 
-- 最大3回リトライ
-- ページを再読み込み
-- 明日の状態を再読み取り
-- すべてのキャストが「出勤」に設定されていることを確認
+### 2. エラーハンドリング
 
-**Step 8: ロック解放** (行778-787)
+- ログイン失敗時の再試行
+- スケジュールページが見つからない場合
+- 翌日の列が見つからない場合
+- 保存エラー時の対応
+
+### 3. ログ記録
+
+すべての操作は `backend/logs/` に記録されます：
 
 ```python
-finally:
-    if lock_acquired:
-        account_repo.release_lock(account_id)
+logger.info(f"[{username}] Processing schedule for tomorrow: {tomorrow_str}")
+logger.info(f"[{username}] Found {cells_to_update} cells to update")
 ```
 
-#### 3. ロック管理 (`backend/src/database/repositories/account.py`)
+## テスト手順
 
-**`acquire_lock`メソッド** (行240-279):
+### 1. 単一アカウントテスト
 
-- `metadata_json`にロック情報を保存
-- `AccountStatus.PROCESSING`にステータスを更新
-- 既にロックされている場合は `False`を返却
+```bash
+cd backend
+python scripts/auto_schedule_attendance.py
+```
 
-**`release_lock`メソッド** (行281-307):
+**確認項目**:
+- ✓ ログインが成功するか
+- ✓ スケジュールページに移動できるか
+- ✓ 翌日の列を正しく特定できるか
+- ✓ 「休み」のセルを検出できるか
+- ✓ 出勤時間をコピーできるか
+- ✓ 変更が保存されるか
 
-- `metadata_json`からロック情報を削除
-- `AccountStatus.IDLE`にステータスを戻す
+### 2. 複数アカウントテスト
 
-**`is_locked`メソッド** (行309-329):
+最初の5アカウントでテスト:
 
-- `AccountStatus.PROCESSING`と `metadata_json`のロック情報を確認
+```python
+accounts = get_accounts_ordered()[:5]  # First 5 only
+```
 
-#### 4. 並列実行 (`backend/src/automation/executor.py`)
+### 3. 本番実行
 
-- `ThreadPoolExecutor`で複数アカウントを並列処理
-- ロック済みアカウントは事前にフィルタリング
-- 各アカウントの処理は独立して実行され、1つの失敗が他に影響しない
+全126アカウントで実行:
 
-### エラーハンドリング
+```bash
+python scripts/auto_schedule_attendance_all.py
+```
 
-- **UI操作失敗**: 最大3回リトライ（更新と検証の両方）
-- **セッション失効**: `AutomationError`を発生させ、アカウントをスキップ
-- **手動操作検知**: `ManualOperationDetectedError`を発生させ、イベントを発行
-- **ロック競合**: ロック取得失敗時はスキップ（正常な動作）
+## トラブルシューティング
 
-### ログ記録
+### Q1: スケジュールページが見つからない
 
-- `log_manager.log_operation`で全操作を記録
-- 各ステップで `schedule_ctx.log_info/log_success/log_error`を呼び出し
-- アカウントID、タイムスタンプ、アクション、結果を記録
+**対策**:
+- ブラウザを可視モード(`headless=False`)で実行
+- ページのHTML構造を確認
+- セレクタを調整
 
-## 完了条件
+```python
+# デバッグ用: ページのHTMLを保存
+page.content() を確認
+```
 
-✅ すべての対象アカウントが処理された
-✅ アカウントが暗黙的にスキップされていない
-✅ すべての変更が検証された
-✅ エラー（該当時）が完全にログ記録され、追跡可能
+### Q2: 翌日の列が特定できない
 
-## ステータス
+**対策**:
+- 日付フォーマットを確認: "2/4(水)" vs "2/4" vs "2月4日"
+- ヘッダーのテキストをログ出力して確認
 
-**実装完了・テスト準備完了**
+```python
+headers = page.query_selector_all('th')
+for h in headers:
+    print(h.inner_text())
+```
+
+### Q3: セルのクリック・編集ができない
+
+**対策**:
+- クリック後の待機時間を調整
+- 編集UIの構造を確認（ポップアップ、インライン編集など）
+- JavaScript評価で直接値を設定
+
+### Q4: 保存ボタンが見つからない
+
+**対策**:
+- ボタンのテキストを確認
+- セレクタを追加・調整
+- キーボード操作を試す（Enter、Ctrl+S など）
+
+## 今後の拡張
+
+### 1. バッチ処理の最適化
+
+- 複数アカウントの並列処理
+- 失敗したアカウントの自動リトライ
+
+### 2. 通知機能
+
+- 処理完了時のメール通知
+- エラー発生時のアラート
+
+### 3. レポート生成
+
+- 日次の処理サマリー
+- 変更内容の詳細レポート
+
+### 4. UI統合
+
+- フロントエンドからの手動実行
+- リアルタイム進捗表示
+
+## まとめ
+
+✅ **完成項目**:
+- 単一アカウント用テストスクリプト
+- ログイン処理
+- スケジュールページナビゲーション
+- 翌日の日付特定
+- 休みから出勤への変更ロジック
+- ログアウト処理
+
+🔧 **要調整項目**:
+- UI要素のセレクタ（実際のページ構造に合わせて）
+- 編集モードの操作方法
+- 保存ボタンの特定
+
+📋 **次のステップ**:
+1. テストアカウントで実行・検証
+2. UI要素の調整
+3. 全アカウント対応版の作成
+4. スケジュール自動実行の設定

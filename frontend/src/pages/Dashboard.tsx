@@ -5,13 +5,20 @@ import { ScheduleMonitor } from '@/components/ScheduleMonitor';
 import { ExecutionLog } from '@/components/ExecutionLog';
 import { StatusMonitoringDashboard } from '@/components/StatusMonitoringDashboard';
 import { ManualExecutionControl } from '@/components/ManualExecutionControl';
+import { useState } from 'react';
 import { useSystemStatus, useAccounts, useSchedules, useRecentLogs, useMonitoringStates } from '@/hooks/useApi';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const ACCOUNTS_PER_PAGE = 10;
+
 export function Dashboard() {
   const { data: systemStatus, isLoading: systemLoading, error: systemError } = useSystemStatus();
-  const { data: accountsData, isLoading: accountsLoading } = useAccounts({ per_page: 20 });
+  const [accountsPage, setAccountsPage] = useState(1);
+  const { data: accountsData, isLoading: accountsLoading } = useAccounts({
+    page: accountsPage,
+    per_page: ACCOUNTS_PER_PAGE,
+  });
   const { data: schedules, isLoading: schedulesLoading } = useSchedules();
   const { data: logsData, isLoading: logsLoading } = useRecentLogs(50);
   const { data: monitoringData, isLoading: monitoringLoading } = useMonitoringStates();
@@ -148,11 +155,14 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Account Table */}
+      {/* Account Table: 10 per page, 13 pages */}
       <AccountTable 
         accounts={accountsData?.accounts || []} 
         isLoading={accountsLoading}
-        totalAccounts={totalAccounts}
+        totalAccounts={accountsData?.pagination?.total ?? totalAccounts}
+        page={accountsPage}
+        totalPages={accountsData?.pagination?.pages ?? 1}
+        onPageChange={setAccountsPage}
       />
 
       {/* Schedule Monitor and Execution Log */}
